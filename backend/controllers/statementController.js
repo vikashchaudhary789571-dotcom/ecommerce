@@ -602,6 +602,8 @@ exports.editDirect = async (req, res) => {
         
         let pdfBuffer;
         let originalFilename = 'statement.pdf';
+        let originalPath = null; // Track original file path (null for base64)
+        let originalFileSize = 0; // Track original file size
         
         // Option 1: PDF data sent as base64 (preferred for Render)
         if (pdfData) {
@@ -610,6 +612,7 @@ exports.editDirect = async (req, res) => {
                 // Remove data URL prefix if present
                 const base64Data = pdfData.replace(/^data:application\/pdf;base64,/, '');
                 pdfBuffer = Buffer.from(base64Data, 'base64');
+                originalFileSize = pdfBuffer.length; // Store original size
                 console.log(`[editDirect] ✓ PDF buffer created from base64 (${pdfBuffer.length} bytes)`);
             } catch (base64Err) {
                 console.error(`[editDirect] ✗ Failed to decode base64:`, base64Err.message);
@@ -624,7 +627,7 @@ exports.editDirect = async (req, res) => {
             originalFilename = segments[segments.length - 1];
             const isDownload = urlPath.includes('/downloads/');
             const baseDir = isDownload ? path.join(__dirname, '../downloads') : path.join(__dirname, '../uploads');
-            const originalPath = path.join(baseDir, originalFilename);
+            originalPath = path.join(baseDir, originalFilename);
 
             console.log(`[editDirect] Original filename: ${originalFilename}`);
             console.log(`[editDirect] Is download: ${isDownload}`);
@@ -662,7 +665,8 @@ exports.editDirect = async (req, res) => {
             }
 
             console.log(`[editDirect] ✓ File exists at: ${originalPath}`);
-            console.log(`[editDirect] File size: ${fs.statSync(originalPath).size} bytes`);
+            originalFileSize = fs.statSync(originalPath).size;
+            console.log(`[editDirect] File size: ${originalFileSize} bytes`);
             
             pdfBuffer = fs.readFileSync(originalPath);
         }
@@ -1058,14 +1062,14 @@ ET
             }
             
             console.log(`[editDirect] ✓ PDF saved successfully (${pdfBytes.length} bytes)`);
-            console.log(`[editDirect] 📊 Original size: ${fs.statSync(originalPath).size} bytes (${(fs.statSync(originalPath).size / 1024).toFixed(2)} KB)`);
+            console.log(`[editDirect] 📊 Original size: ${originalFileSize} bytes (${(originalFileSize / 1024).toFixed(2)} KB)`);
             console.log(`[editDirect] 📊 New size: ${pdfBytes.length} bytes (${(pdfBytes.length / 1024).toFixed(2)} KB)`);
             
-            const sizeIncrease = pdfBytes.length - fs.statSync(originalPath).size;
-            const percentIncrease = ((sizeIncrease / fs.statSync(originalPath).size) * 100).toFixed(2);
+            const sizeIncrease = pdfBytes.length - originalFileSize;
+            const percentIncrease = originalFileSize > 0 ? ((sizeIncrease / originalFileSize) * 100).toFixed(2) : '0.00';
             console.log(`[editDirect] 📊 Size change: ${sizeIncrease > 0 ? '+' : ''}${(sizeIncrease / 1024).toFixed(2)} KB (${percentIncrease}%)`);
             
-            if (percentIncrease > 20) {
+            if (parseFloat(percentIncrease) > 20) {
                 console.warn(`[editDirect] ⚠️ File size increased by ${percentIncrease}% - this is expected for edited PDFs`);
             }
         } catch (saveErr) {
@@ -1122,10 +1126,10 @@ ET
                 changesApplied: appliedChanges,
                 totalChanges: changes.length,
                 fileSize: pdfBytes.length,
-                originalFileSize: fs.statSync(originalPath).size,
+                originalFileSize: originalFileSize,
                 fileSizeKB: (pdfBytes.length / 1024).toFixed(2),
-                originalFileSizeKB: (fs.statSync(originalPath).size / 1024).toFixed(2),
-                sizeIncreasePercent: (((pdfBytes.length - fs.statSync(originalPath).size) / fs.statSync(originalPath).size) * 100).toFixed(2)
+                originalFileSizeKB: (originalFileSize / 1024).toFixed(2),
+                sizeIncreasePercent: originalFileSize > 0 ? (((pdfBytes.length - originalFileSize) / originalFileSize) * 100).toFixed(2) : '0.00'
             },
             metadata: {
                 version: originalPdfVersion || originalMetadata.version,
