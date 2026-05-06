@@ -12,19 +12,37 @@ const statementRoutes = require('./routes/statementRoutes');
 const app = express();
 const port = process.env.PORT || 5000;
 
-// Middleware
+// Middleware - CORS Configuration
 app.use(cors({
-    origin: [
-        'http://localhost:5173', 
-        'http://localhost:5174',
-        'http://localhost:3000',
-        'https://editor-12.onrender.com',
-        'https://editor-123-sfkd.onrender.com'
-    ],
+    origin: function (origin, callback) {
+        // Allow requests with no origin (like mobile apps or curl requests)
+        if (!origin) return callback(null, true);
+        
+        const allowedOrigins = [
+            'http://localhost:5173', 
+            'http://localhost:5174',
+            'http://localhost:3000',
+            'https://editor-12.onrender.com',
+            'https://editor-123-sfkd.onrender.com'
+        ];
+        
+        // Check if origin is in allowed list or is a Render URL
+        if (allowedOrigins.indexOf(origin) !== -1 || origin.endsWith('.onrender.com')) {
+            callback(null, true);
+        } else {
+            callback(new Error('Not allowed by CORS'));
+        }
+    },
     credentials: true,
-    methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
-    allowedHeaders: ['Content-Type', 'Authorization']
+    methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS', 'PATCH'],
+    allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With', 'Accept'],
+    exposedHeaders: ['Content-Range', 'X-Content-Range'],
+    maxAge: 86400 // 24 hours
 }));
+
+// Handle preflight requests explicitly
+app.options('*', cors());
+
 app.use(express.json({ limit: process.env.UPLOAD_LIMIT || '100mb' }));
 app.use(express.urlencoded({ extended: true, limit: process.env.UPLOAD_LIMIT || '100mb' }));
 app.use(morgan('dev')); 

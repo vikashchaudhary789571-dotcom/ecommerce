@@ -27,6 +27,24 @@ exports.register = async (req, res) => {
     try {
         const { name, email, password } = req.body;
 
+        // If MongoDB is not connected, use dummy registration
+        if (!process.env.MONGO_URI) {
+            console.log('[register] No database configured, using dummy registration');
+            
+            const token = signToken('dummy-user-id');
+            return res.status(201).json({
+                success: true,
+                token,
+                user: {
+                    _id: 'dummy-user-id',
+                    name: name || 'Demo User',
+                    email: email,
+                    role: 'user'
+                },
+                message: 'Demo mode: Registration successful. Use demo@example.com / demo123 to login'
+            });
+        }
+
         // Check if user already exists
         const existingUser = await User.findOne({ email });
         if (existingUser) {
@@ -65,7 +83,32 @@ exports.login = async (req, res) => {
             });
         }
 
-        // 2) Check if user exists & password is correct
+        // 2) If MongoDB is not connected, use dummy authentication
+        if (!process.env.MONGO_URI) {
+            console.log('[login] No database configured, using dummy auth');
+            
+            // Dummy authentication for demo purposes
+            if (email === 'demo@example.com' && password === 'demo123') {
+                const token = signToken('dummy-user-id');
+                return res.status(200).json({
+                    success: true,
+                    token,
+                    user: {
+                        _id: 'dummy-user-id',
+                        name: 'Demo User',
+                        email: email,
+                        role: 'user'
+                    }
+                });
+            } else {
+                return res.status(401).json({
+                    success: false,
+                    message: 'Incorrect email or password. Try: demo@example.com / demo123'
+                });
+            }
+        }
+
+        // 3) Check if user exists & password is correct (with database)
         const user = await User.findOne({ email }).select('+password');
 
         if (!user || !(await user.correctPassword(password, user.password))) {
@@ -75,7 +118,7 @@ exports.login = async (req, res) => {
             });
         }
 
-        // 3) If everything ok, send token to client
+        // 4) If everything ok, send token to client
         createSendToken(user, 200, res);
     } catch (err) {
         console.error('Login Error:', err);
