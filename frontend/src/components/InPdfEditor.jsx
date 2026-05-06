@@ -732,11 +732,38 @@ export function InPdfEditor(props) {
         }
 
         try {
+            // Fetch PDF and convert to base64 for Render compatibility
+            let pdfData = null;
+            try {
+                console.log(`[Save] Fetching PDF from: ${fileUrl}`);
+                const pdfResponse = await fetch(fileUrl);
+                if (!pdfResponse.ok) {
+                    throw new Error(`Failed to fetch PDF: ${pdfResponse.status}`);
+                }
+                const pdfBlob = await pdfResponse.blob();
+                
+                // Convert blob to base64
+                const reader = new FileReader();
+                pdfData = await new Promise((resolve, reject) => {
+                    reader.onloadend = () => resolve(reader.result);
+                    reader.onerror = reject;
+                    reader.readAsDataURL(pdfBlob);
+                });
+                
+                console.log(`[Save] ✓ PDF converted to base64 (${Math.round(pdfData.length / 1024)} KB)`);
+            } catch (fetchPdfErr) {
+                console.error(`[Save] ❌ Failed to fetch PDF:`, fetchPdfErr);
+                alert(`Failed to load PDF: ${fetchPdfErr.message}`);
+                setIsSaving(false);
+                return;
+            }
+            
             const response = await fetch('https://editor-12.onrender.com/api/statements/edit-direct', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
-                    fileUrl,
+                    fileUrl,  // Keep for backward compatibility
+                    pdfData,  // Send base64 data (preferred for Render)
                     changes,
                     pageColors,
                     password: pdfPasswordRef.current
@@ -1171,12 +1198,44 @@ export function InPdfEditor(props) {
             console.log(`[Transform] 📝 Font metrics preserved in changes:`, 
                 changes.filter(c => c.fontMetrics).length > 0 ? 'Yes' : 'No');
             
+            // Fetch PDF and convert to base64 for Render compatibility
+            let pdfData = null;
+            try {
+                console.log(`[Transform] Fetching PDF from: ${fileUrl}`);
+                const pdfResponse = await fetch(fileUrl);
+                if (!pdfResponse.ok) {
+                    throw new Error(`Failed to fetch PDF: ${pdfResponse.status}`);
+                }
+                const pdfBlob = await pdfResponse.blob();
+                
+                // Convert blob to base64
+                const reader = new FileReader();
+                pdfData = await new Promise((resolve, reject) => {
+                    reader.onloadend = () => resolve(reader.result);
+                    reader.onerror = reject;
+                    reader.readAsDataURL(pdfBlob);
+                });
+                
+                console.log(`[Transform] ✓ PDF converted to base64 (${Math.round(pdfData.length / 1024)} KB)`);
+            } catch (fetchPdfErr) {
+                console.error(`[Transform] ❌ Failed to fetch PDF:`, fetchPdfErr);
+                alert(`Failed to load PDF: ${fetchPdfErr.message}`);
+                setViewMode('table');
+                return;
+            }
+            
             let transformResponse;
             try {
                 const response = await fetch('https://editor-12.onrender.com/api/statements/edit-direct', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ fileUrl, changes, pageColors, password: pdfPasswordRef.current }),
+                    body: JSON.stringify({ 
+                        fileUrl,  // Keep for backward compatibility
+                        pdfData,  // Send base64 data (preferred for Render)
+                        changes, 
+                        pageColors, 
+                        password: pdfPasswordRef.current 
+                    }),
                 });
 
                 if (!response.ok) {

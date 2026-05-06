@@ -588,65 +588,89 @@ exports.downloadFile = (req, res) => {
 };
 
 exports.editDirect = async (req, res) => {
-    const { fileUrl, changes, pageColors, password } = req.body;
+    const { fileUrl, pdfData, changes, pageColors, password } = req.body;
 
-    if (!fileUrl) return res.status(400).json({ success: false, message: 'fileUrl is required.' });
-    if (!Array.isArray(changes) || changes.length === 0) return res.status(400).json({ success: false, message: 'No changes provided.' });
+    if (!fileUrl && !pdfData) {
+        return res.status(400).json({ success: false, message: 'fileUrl or pdfData is required.' });
+    }
+    if (!Array.isArray(changes) || changes.length === 0) {
+        return res.status(400).json({ success: false, message: 'No changes provided.' });
+    }
 
     try {
         console.log(`[editDirect] ▶ Starting transformation with ${changes.length} changes. Password provided: ${!!password}`);
         
-        const urlPath = new URL(fileUrl).pathname;
-        const segments = urlPath.split('/');
-        const originalFilename = segments[segments.length - 1];
-        const isDownload = urlPath.includes('/downloads/');
-        const baseDir = isDownload ? path.join(__dirname, '../downloads') : path.join(__dirname, '../uploads');
-        const originalPath = path.join(baseDir, originalFilename);
-
-        console.log(`[editDirect] Original filename: ${originalFilename}`);
-        console.log(`[editDirect] Is download: ${isDownload}`);
-        console.log(`[editDirect] Base dir: ${baseDir}`);
-        console.log(`[editDirect] Full path: ${originalPath}`);
-
-        if (!fs.existsSync(originalPath)) {
-            console.error(`[editDirect] ✗ File not found at: ${originalPath}`);
-            
-            // List files in uploads directory for debugging
+        let pdfBuffer;
+        let originalFilename = 'statement.pdf';
+        
+        // Option 1: PDF data sent as base64 (preferred for Render)
+        if (pdfData) {
+            console.log(`[editDirect] Using PDF data from request body (base64)`);
             try {
-                const uploadsDir = path.join(__dirname, '../uploads');
-                const downloadDir = path.join(__dirname, '../downloads');
-                
-                console.log(`[editDirect] Checking uploads directory: ${uploadsDir}`);
-                if (fs.existsSync(uploadsDir)) {
-                    const uploadFiles = fs.readdirSync(uploadsDir);
-                    console.log(`[editDirect] Files in uploads (${uploadFiles.length}):`, uploadFiles.slice(0, 5));
-                } else {
-                    console.log(`[editDirect] Uploads directory does not exist!`);
-                }
-                
-                console.log(`[editDirect] Checking downloads directory: ${downloadDir}`);
-                if (fs.existsSync(downloadDir)) {
-                    const downloadFiles = fs.readdirSync(downloadDir);
-                    console.log(`[editDirect] Files in downloads (${downloadFiles.length}):`, downloadFiles.slice(0, 5));
-                } else {
-                    console.log(`[editDirect] Downloads directory does not exist!`);
-                }
-            } catch (listErr) {
-                console.error(`[editDirect] Error listing directories:`, listErr.message);
+                // Remove data URL prefix if present
+                const base64Data = pdfData.replace(/^data:application\/pdf;base64,/, '');
+                pdfBuffer = Buffer.from(base64Data, 'base64');
+                console.log(`[editDirect] ✓ PDF buffer created from base64 (${pdfBuffer.length} bytes)`);
+            } catch (base64Err) {
+                console.error(`[editDirect] ✗ Failed to decode base64:`, base64Err.message);
+                return res.status(400).json({ success: false, message: 'Invalid PDF data' });
             }
-            
-            return res.status(404).json({ success: false, message: 'File not found' });
         }
+        // Option 2: File URL (fallback for local/existing files)
+        else if (fileUrl) {
+            console.log(`[editDirect] Using file URL: ${fileUrl}`);
+            const urlPath = new URL(fileUrl).pathname;
+            const segments = urlPath.split('/');
+            originalFilename = segments[segments.length - 1];
+            const isDownload = urlPath.includes('/downloads/');
+            const baseDir = isDownload ? path.join(__dirname, '../downloads') : path.join(__dirname, '../uploads');
+            const originalPath = path.join(baseDir, originalFilename);
 
-        console.log(`[editDirect] ✓ File exists at: ${originalPath}`);
-        console.log(`[editDirect] File size: ${fs.statSync(originalPath).size} bytes`);
+            console.log(`[editDirect] Original filename: ${originalFilename}`);
+            console.log(`[editDirect] Is download: ${isDownload}`);
+            console.log(`[editDirect] Base dir: ${baseDir}`);
+            console.log(`[editDirect] Full path: ${originalPath}`);
+
+            if (!fs.existsSync(originalPath)) {
+                console.error(`[editDirect] ✗ File not found at: ${originalPath}`);
+                
+                // List files in uploads directory for debugging
+                try {
+                    const uploadsDir = path.join(__dirname, '../uploads');
+                    const downloadDir = path.join(__dirname, '../downloads');
+                    
+                    console.log(`[editDirect] Checking uploads directory: ${uploadsDir}`);
+                    if (fs.existsSync(uploadsDir)) {
+                        const uploadFiles = fs.readdirSync(uploadsDir);
+                        console.log(`[editDirect] Files in uploads (${uploadFiles.length}):`, uploadFiles.slice(0, 5));
+                    } else {
+                        console.log(`[editDirect] Uploads directory does not exist!`);
+                    }
+                    
+                    console.log(`[editDirect] Checking downloads directory: ${downloadDir}`);
+                    if (fs.existsSync(downloadDir)) {
+                        const downloadFiles = fs.readdirSync(downloadDir);
+                        console.log(`[editDirect] Files in downloads (${downloadFiles.length}):`, downloadFiles.slice(0, 5));
+                    } else {
+                        console.log(`[editDirect] Downloads directory does not exist!`);
+                    }
+                } catch (listErr) {
+                    console.error(`[editDirect] Error listing directories:`, listErr.message);
+                }
+                
+                return res.status(404).json({ success: false, message: 'File not found. Please re-upload the PDF.' });
+            }
+
+            console.log(`[editDirect] ✓ File exists at: ${originalPath}`);
+            console.log(`[editDirect] File size: ${fs.statSync(originalPath).size} bytes`);
+            
+            pdfBuffer = fs.readFileSync(originalPath);
+        }
         
         // pdf-lib cannot decrypt AES-256 PDFs — always use ignoreEncryption
         let pdfDoc;
         let originalPdfVersion = null;
         try {
-            const pdfBuffer = fs.readFileSync(originalPath);
-            
             // ═══════════════════════════════════════════════════════════════════
             // CRITICAL: Extract PDF version from raw file BEFORE loading with pdf-lib
             // This ensures we get the EXACT original version (1.4, 1.5, 1.7, etc.)
