@@ -83,7 +83,7 @@ exports.login = async (req, res) => {
             });
         }
 
-        // 2) If MongoDB is not connected, use dummy authentication
+        // 2) If MongoDB is not connected or connection fails, use dummy authentication
         if (!process.env.MONGO_URI) {
             console.log('[login] No database configured, using dummy auth');
             
@@ -108,18 +108,42 @@ exports.login = async (req, res) => {
             }
         }
 
-        // 3) Check if user exists & password is correct (with database)
-        const user = await User.findOne({ email }).select('+password');
+        // 3) Try database authentication, fallback to dummy if it fails
+        try {
+            const user = await User.findOne({ email }).select('+password');
 
-        if (!user || !(await user.correctPassword(password, user.password))) {
-            return res.status(401).json({
-                success: false,
-                message: 'Incorrect email or password'
-            });
+            if (!user || !(await user.correctPassword(password, user.password))) {
+                return res.status(401).json({
+                    success: false,
+                    message: 'Incorrect email or password'
+                });
+            }
+
+            // 4) If everything ok, send token to client
+            createSendToken(user, 200, res);
+        } catch (dbErr) {
+            console.error('[login] Database error, falling back to dummy auth:', dbErr.message);
+            
+            // Fallback to dummy authentication if database fails
+            if (email === 'demo@example.com' && password === 'demo123') {
+                const token = signToken('dummy-user-id');
+                return res.status(200).json({
+                    success: true,
+                    token,
+                    user: {
+                        _id: 'dummy-user-id',
+                        name: 'Demo User',
+                        email: email,
+                        role: 'user'
+                    }
+                });
+            } else {
+                return res.status(401).json({
+                    success: false,
+                    message: 'Incorrect email or password. Try: demo@example.com / demo123'
+                });
+            }
         }
-
-        // 4) If everything ok, send token to client
-        createSendToken(user, 200, res);
     } catch (err) {
         console.error('Login Error:', err);
         res.status(500).json({
