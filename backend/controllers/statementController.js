@@ -976,6 +976,9 @@ ET
                     console.log(`[editDirect] ✓ Drew text using existing ${detectedFontName} (raw operations)`);
                 } else {
                     // Use standard pdf-lib drawing for other fonts
+                    console.log(`[editDirect] 🎨 Drawing text with pdf-lib: "${textStr}" at (${drawX}, ${change.y})`);
+                    console.log(`[editDirect] 🎨 Font: ${currentFont.name}, Size: ${fontSize}, Color: rgb(${textColor.red}, ${textColor.green}, ${textColor.blue})`);
+                    
                     page.drawText(textStr, {
                         x: drawX,
                         y: change.y,
@@ -983,6 +986,8 @@ ET
                         font: currentFont,
                         color: textColor,
                     });
+                    
+                    console.log(`[editDirect] ✓ Drew text using pdf-lib`);
                 }
 
                 appliedChanges++;
