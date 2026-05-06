@@ -1,19 +1,36 @@
 const express = require('express');
 const router = express.Router();
 const multer = require('multer');
+const path = require('path');
+const fs = require('fs');
 const statementController = require('../controllers/statementController');
 
-// Multer configuration for file uploads
+// Ensure uploads directory exists
+const uploadsDir = path.join(__dirname, '../uploads');
+if (!fs.existsSync(uploadsDir)) {
+    fs.mkdirSync(uploadsDir, { recursive: true });
+    console.log('[Routes] Created uploads directory:', uploadsDir);
+}
+
+// Multer configuration for file uploads with absolute path
 const storage = multer.diskStorage({
     destination: (req, file, cb) => {
-        cb(null, 'uploads/');
+        console.log('[Multer] Saving file to:', uploadsDir);
+        cb(null, uploadsDir);
     },
     filename: (req, file, cb) => {
-        cb(null, Date.now() + '-' + file.originalname);
+        const filename = Date.now() + '-' + file.originalname;
+        console.log('[Multer] Generated filename:', filename);
+        cb(null, filename);
     }
 });
 
-const upload = multer({ storage: storage });
+const upload = multer({ 
+    storage: storage,
+    limits: {
+        fileSize: 100 * 1024 * 1024 // 100MB limit
+    }
+});
 
 router.post('/upload', upload.single('file'), statementController.uploadStatement);
 router.post('/regenerate', statementController.regeneratePdf);

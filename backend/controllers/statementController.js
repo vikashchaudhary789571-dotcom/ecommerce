@@ -610,6 +610,31 @@ exports.editDirect = async (req, res) => {
 
         if (!fs.existsSync(originalPath)) {
             console.error(`[editDirect] ✗ File not found at: ${originalPath}`);
+            
+            // List files in uploads directory for debugging
+            try {
+                const uploadsDir = path.join(__dirname, '../uploads');
+                const downloadDir = path.join(__dirname, '../downloads');
+                
+                console.log(`[editDirect] Checking uploads directory: ${uploadsDir}`);
+                if (fs.existsSync(uploadsDir)) {
+                    const uploadFiles = fs.readdirSync(uploadsDir);
+                    console.log(`[editDirect] Files in uploads (${uploadFiles.length}):`, uploadFiles.slice(0, 5));
+                } else {
+                    console.log(`[editDirect] Uploads directory does not exist!`);
+                }
+                
+                console.log(`[editDirect] Checking downloads directory: ${downloadDir}`);
+                if (fs.existsSync(downloadDir)) {
+                    const downloadFiles = fs.readdirSync(downloadDir);
+                    console.log(`[editDirect] Files in downloads (${downloadFiles.length}):`, downloadFiles.slice(0, 5));
+                } else {
+                    console.log(`[editDirect] Downloads directory does not exist!`);
+                }
+            } catch (listErr) {
+                console.error(`[editDirect] Error listing directories:`, listErr.message);
+            }
+            
             return res.status(404).json({ success: false, message: 'File not found' });
         }
 
