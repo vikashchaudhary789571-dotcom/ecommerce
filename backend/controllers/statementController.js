@@ -938,12 +938,11 @@ exports.editDirect = async (req, res) => {
                 const textColor = pageTextColors[change.pageIndex] || rgb(0, 0, 0);
                 
                 // ═══════════════════════════════════════════════════════════════════
-                // CRITICAL: For Arial PDFs, use raw PDF content stream operations
-                // This avoids adding Helvetica to the PDF
+                // CRITICAL: For ALL fonts, use raw PDF content stream operations
+                // This ensures text is drawn ON TOP of the white mask, not under it
                 // ═══════════════════════════════════════════════════════════════════
                 if (currentFont._isRawFont && currentFont._fontKey) {
-                    // Use raw PDF operations to draw text with existing Arial font
-                    // Remove leading slash from font key (e.g., "/F1" → "F1")
+                    // Use raw PDF operations to draw text with existing Arial/CourierNew font
                     const fontKeyName = currentFont._fontKey.replace(/^\//, '');
                     
                     const contentStream = `
@@ -975,19 +974,72 @@ ET
                     
                     console.log(`[editDirect] ✓ Drew text using existing ${detectedFontName} (raw operations)`);
                 } else {
-                    // Use standard pdf-lib drawing for other fonts
-                    console.log(`[editDirect] 🎨 Drawing text with pdf-lib: "${textStr}" at (${drawX}, ${change.y})`);
-                    console.log(`[editDirect] 🎨 Font: ${currentFont.name}, Size: ${fontSize}, Color: rgb(${textColor.red}, ${textColor.green}, ${textColor.blue})`);
+                    // For Times-Roman and other standard fonts, also use raw operations
+                    // Find the font key in the page resources
+                    let fontKey = null;
+                    const resources = page.node.get(PDFName.of('Resources'));
+                    const fontDict = resources ? resources.get(PDFName.of('Font')) : null;
                     
-                    page.drawText(textStr, {
-                        x: drawX,
-                        y: change.y,
-                        size: fontSize,
-                        font: currentFont,
-                        color: textColor,
-                    });
+                    if (fontDict) {
+                        // Find Times-Roman font key
+                        const fontEntries = fontDict.entries();
+                        for (const [key, value] of fontEntries) {
+                            const fontObj = pdfDoc.context.lookup(value);
+                            const baseFont = fontObj.get(PDFName.of('BaseFont'));
+                            if (baseFont && baseFont.toString().includes('Times-Roman')) {
+                                fontKey = key.toString().replace(/^\//, '');
+                                break;
+                            }
+                        }
+                    }
                     
-                    console.log(`[editDirect] ✓ Drew text using pdf-lib`);
+                    if (fontKey) {
+                        // Use raw PDF operations with existing font
+                        console.log(`[editDirect] 🎨 Using raw operations with font key: ${fontKey}`);
+                        
+                        const contentStream = `
+BT
+/${fontKey} ${fontSize} Tf
+${textColor.red} ${textColor.green} ${textColor.blue} rg
+${drawX} ${change.y} Td
+(${textStr.replace(/\\/g, '\\\\').replace(/\(/g, '\\(').replace(/\)/g, '\\)')}) Tj
+ET
+`;
+                        
+                        // Append to page's content stream
+                        const contents = page.node.get(PDFName.of('Contents'));
+                        if (contents) {
+                            const context = pdfDoc.context;
+                            const streamRef = context.nextRef();
+                            const stream = context.stream(Buffer.from(contentStream, 'latin1'));
+                            context.assign(streamRef, stream);
+                            
+                            // Add to contents array
+                            if (contents instanceof PDFArray) {
+                                contents.push(streamRef);
+                            } else {
+                                // Convert single content to array
+                                const newContents = context.obj([contents, streamRef]);
+                                page.node.set(PDFName.of('Contents'), newContents);
+                            }
+                        }
+                        
+                        console.log(`[editDirect] ✓ Drew text using raw operations with ${detectedFontName}`);
+                    } else {
+                        // Fallback to pdf-lib (should not happen)
+                        console.log(`[editDirect] 🎨 Drawing text with pdf-lib: "${textStr}" at (${drawX}, ${change.y})`);
+                        console.log(`[editDirect] 🎨 Font: ${currentFont.name}, Size: ${fontSize}, Color: rgb(${textColor.red}, ${textColor.green}, ${textColor.blue})`);
+                        
+                        page.drawText(textStr, {
+                            x: drawX,
+                            y: change.y,
+                            size: fontSize,
+                            font: currentFont,
+                            color: textColor,
+                        });
+                        
+                        console.log(`[editDirect] ✓ Drew text using pdf-lib`);
+                    }
                 }
 
                 appliedChanges++;
