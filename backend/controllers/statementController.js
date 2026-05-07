@@ -338,7 +338,7 @@ exports.uploadStatement = async (req, res) => {
             file: {
                 filename: req.file.filename,
                 originalName: req.file.originalname,
-                fileUrl: `${process.env.API_BASE_URL || 'https://ecommerce-2sdf.onrender.com'}/uploads/${req.file.filename}`
+                fileUrl: `${process.env.API_BASE_URL || 'http://localhost:5000'}/uploads/${req.file.filename}`
             },
             transactions: transactions,
             openingBalance,
@@ -544,7 +544,7 @@ exports.regeneratePdf = async (req, res) => {
 
         res.status(200).json({
             success: true,
-            fileUrl: `${process.env.API_BASE_URL || 'https://ecommerce-2sdf.onrender.com'}/downloads/${fileName}`,
+            fileUrl: `${process.env.API_BASE_URL || 'http://localhost:5000'}/downloads/${fileName}`,
             metadata: {
                 version: originalPdfVersion,
                 producer: originalMetadata.producer,
@@ -1074,7 +1074,7 @@ exports.editDirect = async (req, res) => {
             throw new Error(`File write failed: ${writeErr.message}`);
         }
 
-        const responseUrl = `${process.env.API_BASE_URL || 'https://ecommerce-2sdf.onrender.com'}/downloads/${fileName}`;
+        const responseUrl = `${process.env.API_BASE_URL || 'http://localhost:5000'}/downloads/${fileName}`;
         console.log(`[editDirect] ✓ Transform complete! URL: ${responseUrl}`);
 
         res.status(200).json({
