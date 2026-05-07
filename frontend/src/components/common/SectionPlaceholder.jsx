@@ -4,6 +4,17 @@ import { statementService } from '../../services/api';
 import { Download, Trash2, FileCheck2, AlertCircle, FolderOpen, Search, FileDown } from 'lucide-react';
 import { Button } from '../ui/Button';
 
+// Utility function to convert localhost URLs to live URLs
+const convertToLiveUrl = (url) => {
+    if (!url) return url;
+    if (url.includes('localhost:5000')) {
+        const liveUrl = url.replace('http://localhost:5000', 'https://ecommerce-2sdf.onrender.com');
+        console.log(`[URL Conversion] ${url} → ${liveUrl}`);
+        return liveUrl;
+    }
+    return url;
+};
+
 function cleanFileName(name) {
     return name.replace(/^transformed_\d+_/, '');
 }
@@ -50,7 +61,9 @@ export function SectionPlaceholder({ title, description, icon }) {
     const handleDownload = async (item) => {
         setDownloading(item.id);
         try {
-            const downloadUrl = `http://localhost:5000/api/statements/download-file?fileUrl=${encodeURIComponent(item.fileUrl)}`;
+            // Convert localhost URLs to live URLs for production
+            const downloadFileUrl = convertToLiveUrl(item.fileUrl);
+            const downloadUrl = `https://ecommerce-2sdf.onrender.com/api/statements/download-file?fileUrl=${encodeURIComponent(downloadFileUrl)}`;
             const res = await fetch(downloadUrl);
             if (!res.ok) throw new Error(`Server returned ${res.status}`);
             const blob = await res.blob();

@@ -1,8 +1,9 @@
 const fs = require('fs');
 const path = require('path');
 const zlib = require('zlib');
-const { PDFDocument, rgb, StandardFonts, PDFName, PDFArray, PDFHexString, PDFString } = require('pdf-lib');
+const { PDFDocument, rgb, StandardFonts, PDFName, PDFArray, PDFHexString, PDFString, PDFRef } = require('pdf-lib');
 const { PDFParse } = require('pdf-parse');
+const hummus = require('hummus');
 
 /**
  * Force PDF version in the raw PDF bytes
@@ -338,7 +339,7 @@ exports.uploadStatement = async (req, res) => {
             file: {
                 filename: req.file.filename,
                 originalName: req.file.originalname,
-                fileUrl: `${process.env.API_BASE_URL || 'http://localhost:5000'}/uploads/${req.file.filename}`
+                fileUrl: `${process.env.API_BASE_URL || 'https://ecommerce-2sdf.onrender.com'}/uploads/${req.file.filename}`
             },
             transactions: transactions,
             openingBalance,
@@ -544,7 +545,7 @@ exports.regeneratePdf = async (req, res) => {
 
         res.status(200).json({
             success: true,
-            fileUrl: `${process.env.API_BASE_URL || 'http://localhost:5000'}/downloads/${fileName}`,
+            fileUrl: `${process.env.API_BASE_URL || 'https://ecommerce-2sdf.onrender.com'}/downloads/${fileName}`,
             metadata: {
                 version: originalPdfVersion,
                 producer: originalMetadata.producer,
@@ -720,13 +721,11 @@ exports.editDirect = async (req, res) => {
         console.log(`[editDirect] 📝 Extracted fonts from ${Object.keys(pageFonts).length} pages`);
         
         // ═══════════════════════════════════════════════════════════════════
-        // CRITICAL: For Arial PDFs, use existing Arial font directly
-        // DO NOT embed Helvetica - use raw PDF operations instead
+        // CRITICAL: Use existing fonts with pdf-lib standard methods
+        // This is more reliable than raw PDF operations
         // ═══════════════════════════════════════════════════════════════════
         let font, boldFont;
         let detectedFontName = null;
-        let useRawPdfOperations = false;
-        let existingFontKey = null;
         
         try {
             // Detect which font is already in the PDF
@@ -734,30 +733,15 @@ exports.editDirect = async (req, res) => {
                 for (const [fontKey, fontInfo] of Object.entries(fonts)) {
                     const baseFontLower = (fontInfo.baseFont || '').toLowerCase();
                     
-                    // Check for common fonts - BE PRECISE to avoid false matches
-                    // CourierNew should NOT match "Courier"
-                    if (baseFontLower.includes('arial')) {
-                        detectedFontName = 'Arial';
-                        existingFontKey = fontKey;
-                        useRawPdfOperations = true; // Use raw operations for Arial
-                        break;
-                    } else if (baseFontLower.includes('helvetica')) {
+                    // Check for common fonts
+                    if (baseFontLower.includes('arial') || baseFontLower.includes('helvetica')) {
                         detectedFontName = 'Helvetica';
-                        existingFontKey = fontKey;
                         break;
                     } else if (baseFontLower.includes('times')) {
                         detectedFontName = 'Times-Roman';
-                        existingFontKey = fontKey;
                         break;
-                    } else if (baseFontLower.includes('couriernew')) {
-                        // CourierNew is different from Courier - use raw operations
-                        detectedFontName = 'CourierNew';
-                        existingFontKey = fontKey;
-                        useRawPdfOperations = true; // Use raw operations for CourierNew
-                        break;
-                    } else if (baseFontLower.includes('courier') && !baseFontLower.includes('new')) {
+                    } else if (baseFontLower.includes('courier')) {
                         detectedFontName = 'Courier';
-                        existingFontKey = fontKey;
                         break;
                     }
                 }
@@ -766,74 +750,27 @@ exports.editDirect = async (req, res) => {
             
             console.log(`[editDirect] ✓ Detected original font: ${detectedFontName || 'None'}`);
             
-            if (useRawPdfOperations && existingFontKey) {
-                // For Arial/CourierNew: Create a mock font object that uses existing font
-                console.log(`[editDirect] ✅ Using existing ${detectedFontName} from PDF (raw operations - NO extra fonts added)`);
-                
-                // Get accurate font metrics from the original PDF font
-                const pageIndex = Object.keys(pageFonts)[0]; // First page with fonts
-                const page = pages[parseInt(pageIndex) - 1];
-                const resources = page.node.get(PDFName.of('Resources'));
-                const fontDict = resources ? resources.get(PDFName.of('Font')) : null;
-                const fontRef = fontDict ? fontDict.get(PDFName.of(existingFontKey)) : null;
-                const fontObj = fontRef ? pdfDoc.context.lookup(fontRef) : null;
-                
-                // Extract font metrics for accurate width calculations
-                let avgCharWidth = 0.52; // Default for Arial/CourierNew
-                if (detectedFontName === 'Arial') {
-                    avgCharWidth = 0.52; // Arial average
-                } else if (detectedFontName === 'CourierNew') {
-                    avgCharWidth = 0.60; // CourierNew is monospace, wider
-                }
-                
-                // Create mock font for width calculations
-                font = {
-                    name: detectedFontName,
-                    widthOfTextAtSize: (text, size) => {
-                        // More accurate width calculation
-                        // Account for different character widths
-                        let totalWidth = 0;
-                        for (let i = 0; i < text.length; i++) {
-                            const char = text[i];
-                            // Numbers and uppercase are typically wider
-                            if (/[0-9]/.test(char)) {
-                                totalWidth += avgCharWidth * 1.0; // Numbers
-                            } else if (/[A-Z]/.test(char)) {
-                                totalWidth += avgCharWidth * 1.1; // Uppercase
-                            } else if (/[a-z]/.test(char)) {
-                                totalWidth += avgCharWidth * 0.9; // Lowercase
-                            } else if (/[.,]/.test(char)) {
-                                totalWidth += avgCharWidth * 0.4; // Punctuation
-                            } else {
-                                totalWidth += avgCharWidth; // Other
-                            }
-                        }
-                        return totalWidth * size;
-                    },
-                    heightAtSize: (size) => size,
-                    sizeAtHeight: (height) => height,
-                    _isRawFont: true,
-                    _fontKey: existingFontKey
-                };
-                boldFont = font;
-                
+            // Use standard PDF fonts (these don't add extra font data)
+            let fontToEmbed, boldFontToEmbed;
+            
+            if (detectedFontName === 'Helvetica') {
+                fontToEmbed = StandardFonts.Helvetica;
+                boldFontToEmbed = StandardFonts.HelveticaBold;
+            } else if (detectedFontName === 'Times-Roman') {
+                fontToEmbed = StandardFonts.TimesRoman;
+                boldFontToEmbed = StandardFonts.TimesRomanBold;
+            } else if (detectedFontName === 'Courier') {
+                fontToEmbed = StandardFonts.Courier;
+                boldFontToEmbed = StandardFonts.CourierBold;
             } else {
-                // For other fonts: Use standard pdf-lib embedding
-                let fontToEmbed;
-                if (detectedFontName === 'Helvetica') {
-                    fontToEmbed = StandardFonts.Helvetica;
-                } else if (detectedFontName === 'Times-Roman') {
-                    fontToEmbed = StandardFonts.TimesRoman;
-                } else if (detectedFontName === 'Courier') {
-                    fontToEmbed = StandardFonts.Courier;
-                } else {
-                    fontToEmbed = StandardFonts.Helvetica;
-                }
-                
-                font = await pdfDoc.embedFont(fontToEmbed);
-                boldFont = font;
-                console.log(`[editDirect] ✓ Embedded font: ${fontToEmbed}`);
+                // Default to Helvetica if no font detected
+                fontToEmbed = StandardFonts.Helvetica;
+                boldFontToEmbed = StandardFonts.HelveticaBold;
             }
+            
+            font = await pdfDoc.embedFont(fontToEmbed);
+            boldFont = await pdfDoc.embedFont(boldFontToEmbed);
+            console.log(`[editDirect] ✓ Using standard fonts: ${fontToEmbed} / ${boldFontToEmbed}`);
             
         } catch (fontErr) {
             console.error(`[editDirect] ✗ Font handling failed:`, fontErr.message);
@@ -870,35 +807,9 @@ exports.editDirect = async (req, res) => {
                 const textStr = String(change.newText);
                 const currentFont = change.isBold ? boldFont : font;
                 const textWidth = currentFont.widthOfTextAtSize(textStr, fontSize);
-                const cellWidth = change.width || textWidth;
 
-                // ═══════════════════════════════════════════════════════════════════
-                // CRITICAL: Proper alignment for numeric values in table cells
-                // Match the original PDF's alignment exactly
-                // ═══════════════════════════════════════════════════════════════════
+                // Use exact position from frontend
                 let drawX = change.x;
-                let rectX = change.x;
-                let rectWidth = cellWidth;
-                
-                if (change.isNumeric && change.width) {
-                    // Right-align numeric values within cell
-                    // Use original x position as the RIGHT edge reference
-                    const originalTextWidth = change.width || textWidth;
-                    const rightEdge = change.x + originalTextWidth;
-                    
-                    // Position new text so it ends at the same right edge
-                    drawX = rightEdge - textWidth;
-                    
-                    // Rectangle should cover from cell start to right edge
-                    rectX = Math.min(change.x, drawX);
-                    rectWidth = Math.max(originalTextWidth, textWidth) + 4; // Extra padding
-                    
-                    // Ensure drawX doesn't go before cell start
-                    if (drawX < change.x - 10) {
-                        drawX = change.x;
-                        rectX = change.x;
-                    }
-                }
                 
                 if (change.isSummaryItem && change.minDrawX != null && drawX < change.minDrawX) {
                     drawX = change.minDrawX;
@@ -906,33 +817,28 @@ exports.editDirect = async (req, res) => {
 
                 const textColor = pageTextColors[change.pageIndex] || rgb(0, 0, 0);
                 
-                // ═══════════════════════════════════════════════════════════════════
-                // PDF TEXT REPLACEMENT: Draw white rectangle FIRST, then text on top
-                // Rectangle must cover both old and new text positions
-                // ═══════════════════════════════════════════════════════════════════
-                
-                const rectPadding = 2;
-                const finalRectX = rectX - rectPadding;
+                // Calculate rectangle to cover the text area
+                const rectPadding = 1;
+                const finalRectX = drawX - rectPadding;
                 const rectY = change.y - rectPadding;
-                const finalRectWidth = rectWidth + (rectPadding * 2);
+                const finalRectWidth = textWidth + (rectPadding * 2);
                 const rectHeight = fontSize + (rectPadding * 2);
                 
                 console.log(`[editDirect] 📦 Rectangle: x=${finalRectX.toFixed(2)}, y=${rectY.toFixed(2)}, w=${finalRectWidth.toFixed(2)}, h=${rectHeight.toFixed(2)}`);
                 console.log(`[editDirect] 📝 Text: "${textStr}" at x=${drawX.toFixed(2)}, y=${change.y}, size=${fontSize.toFixed(2)}`);
-                console.log(`[editDirect] 📊 Cell: x=${change.x}, width=${cellWidth}, textWidth=${textWidth.toFixed(2)}`);
                 
-                // Draw white rectangle to mask old text
+                // Step 1: Draw white rectangle to mask old text
                 page.drawRectangle({
                     x: finalRectX,
                     y: rectY,
                     width: finalRectWidth,
                     height: rectHeight,
-                    color: rgb(1, 1, 1),
+                    color: rgb(1, 1, 1), // White
                     opacity: 1.0,
                     borderWidth: 0,
                 });
                 
-                // Draw text on top of white rectangle
+                // Step 2: Draw new text
                 page.drawText(textStr, {
                     x: drawX,
                     y: change.y,
@@ -942,7 +848,7 @@ exports.editDirect = async (req, res) => {
                     opacity: 1.0,
                 });
                 
-                console.log(`[editDirect] ✓ Text drawn successfully`);
+                console.log(`[editDirect] ✅ Text drawn successfully using standard pdf-lib methods`);
 
                 appliedChanges++;
             } catch (changeErr) {
@@ -953,84 +859,25 @@ exports.editDirect = async (req, res) => {
         console.log(`[editDirect] ✓ Applied ${appliedChanges} out of ${changes.length} changes`);
 
         // ═══════════════════════════════════════════════════════════════════
-        // CRITICAL: Preserve original PDF metadata AND version before saving
+        // CRITICAL: Save PDF with minimal changes to preserve fonts
         // ═══════════════════════════════════════════════════════════════════
-        try {
-            const info = pdfDoc.getInfoDict();
-            
-            // Preserve original Producer and Creator if they existed
-            if (originalMetadata.producer) {
-                info.set(PDFName.of('Producer'), PDFHexString.fromText(originalMetadata.producer));
-                console.log(`[editDirect] ✓ Preserved Producer: ${originalMetadata.producer}`);
-            }
-            if (originalMetadata.creator) {
-                info.set(PDFName.of('Creator'), PDFHexString.fromText(originalMetadata.creator));
-                console.log(`[editDirect] ✓ Preserved Creator: ${originalMetadata.creator}`);
-            }
-            
-            // Add modification metadata
-            info.set(PDFName.of('ModDate'), PDFString.of(`D:${new Date().toISOString().replace(/[-:]/g, '').split('.')[0]}Z`));
-            
-            // ═══════════════════════════════════════════════════════════════════
-            // CRITICAL: Force PDF version to match original EXACTLY
-            // ═══════════════════════════════════════════════════════════════════
-            if (originalPdfVersion) {
-                // Set the PDF version in the catalog
-                const [major, minor] = originalPdfVersion.split('.').map(Number);
-                pdfDoc.catalog.set(PDFName.of('Version'), PDFName.of(`${major}.${minor}`));
-                console.log(`[editDirect] ✓ Forced PDF Version to: ${originalPdfVersion}`);
-            }
-        } catch (metaErr) {
-            console.warn(`[editDirect] ⚠ Could not preserve all metadata:`, metaErr.message);
-        }
-
         let pdfBytes;
         try {
-            // ═══════════════════════════════════════════════════════════════════
-            // CRITICAL: Optimize PDF save to reduce file size
-            // Balance between version preservation and file size
-            // ═══════════════════════════════════════════════════════════════════
+            // Save with pdf-lib using options that minimize font changes
             pdfBytes = await pdfDoc.save({ 
-                useObjectStreams: false,        // Keep false for version preservation
+                useObjectStreams: false,        // Don't use object streams (better compatibility)
                 addDefaultPage: false,          // Don't add extra pages
                 updateFieldAppearances: false,  // Don't update form fields
-                objectsPerTick: Infinity        // Process all objects at once
             });
             
-            console.log(`[editDirect] 📊 Initial PDF size: ${pdfBytes.length} bytes (${(pdfBytes.length / 1024).toFixed(2)} KB)`);
-            
-            // ═══════════════════════════════════════════════════════════════════
-            // CRITICAL: Manually fix PDF version in the header if needed
-            // pdf-lib sometimes ignores version settings, so we force it
-            // ═══════════════════════════════════════════════════════════════════
-            if (originalPdfVersion) {
-                const headerStr = pdfBytes.slice(0, 20).toString('latin1');
-                const currentVersion = headerStr.match(/%PDF-(\d+\.\d+)/);
-                
-                if (currentVersion && currentVersion[1] !== originalPdfVersion) {
-                    console.log(`[editDirect] ⚠ Version mismatch detected: ${currentVersion[1]} vs ${originalPdfVersion}`);
-                    console.log(`[editDirect] 🔧 Manually fixing PDF header version...`);
-                    
-                    // Replace version in header
-                    const newHeader = `%PDF-${originalPdfVersion}`;
-                    const headerBytes = Buffer.from(newHeader, 'latin1');
-                    headerBytes.copy(pdfBytes, 0);
-                    
-                    console.log(`[editDirect] ✓ PDF header version fixed to: ${originalPdfVersion}`);
-                }
-            }
-            
-            console.log(`[editDirect] ✓ PDF saved successfully (${pdfBytes.length} bytes)`);
-            console.log(`[editDirect] 📊 Original size: ${originalFileSize} bytes (${(originalFileSize / 1024).toFixed(2)} KB)`);
-            console.log(`[editDirect] 📊 New size: ${pdfBytes.length} bytes (${(pdfBytes.length / 1024).toFixed(2)} KB)`);
+            console.log(`[editDirect] ✓ PDF saved (${pdfBytes.length} bytes)`);
+            console.log(`[editDirect] 📊 Original size: ${originalFileSize} bytes`);
+            console.log(`[editDirect] 📊 New size: ${pdfBytes.length} bytes`);
             
             const sizeIncrease = pdfBytes.length - originalFileSize;
             const percentIncrease = originalFileSize > 0 ? ((sizeIncrease / originalFileSize) * 100).toFixed(2) : '0.00';
             console.log(`[editDirect] 📊 Size change: ${sizeIncrease > 0 ? '+' : ''}${(sizeIncrease / 1024).toFixed(2)} KB (${percentIncrease}%)`);
             
-            if (parseFloat(percentIncrease) > 20) {
-                console.warn(`[editDirect] ⚠️ File size increased by ${percentIncrease}% - this is expected for edited PDFs`);
-            }
         } catch (saveErr) {
             console.error(`[editDirect] ✗ PDF save failed:`, saveErr.message);
             throw new Error(`PDF save failed: ${saveErr.message}`);
@@ -1074,7 +921,7 @@ exports.editDirect = async (req, res) => {
             throw new Error(`File write failed: ${writeErr.message}`);
         }
 
-        const responseUrl = `${process.env.API_BASE_URL || 'http://localhost:5000'}/downloads/${fileName}`;
+        const responseUrl = `${process.env.API_BASE_URL || 'https://ecommerce-2sdf.onrender.com'}/downloads/${fileName}`;
         console.log(`[editDirect] ✓ Transform complete! URL: ${responseUrl}`);
 
         res.status(200).json({

@@ -9,6 +9,17 @@ import { TransactionTable } from './TransactionTable';
 // Initialize PDF.js worker
 pdfjsLib.GlobalWorkerOptions.workerSrc = `//cdnjs.cloudflare.com/ajax/libs/pdf.js/${pdfjsLib.version}/pdf.worker.min.mjs`;
 
+// Utility function to convert localhost URLs to live URLs
+const convertToLiveUrl = (url) => {
+    if (!url) return url;
+    if (url.includes('localhost:5000')) {
+        const liveUrl = url.replace('http://localhost:5000', 'https://ecommerce-2sdf.onrender.com');
+        console.log(`[URL Conversion] ${url} → ${liveUrl}`);
+        return liveUrl;
+    }
+    return url;
+};
+
 export function InPdfEditor(props) {
     const { fileUrl, onUpdateFileUrl, initialPassword } = props;
     const [pdf, setPdf] = useState(null);
@@ -338,7 +349,10 @@ export function InPdfEditor(props) {
                 // Suppress non-critical PDF warnings
                 const pdfjsWorker = pdfjsLib.GlobalWorkerOptions.workerSrc;
                 
-                const loadingTask = pdfjsLib.getDocument(pwd ? { url: fileUrl, password: pwd } : fileUrl);
+                // Convert localhost URLs to live URLs for production
+                const pdfUrl = convertToLiveUrl(fileUrl);
+                
+                const loadingTask = pdfjsLib.getDocument(pwd ? { url: pdfUrl, password: pwd } : pdfUrl);
                 
                 // Don't fail on warnings - PDF might still be readable
                 loadingTask.onPassword = (updatePassword) => {
@@ -675,7 +689,9 @@ export function InPdfEditor(props) {
         if (!fileUrl) return;
         try {
             const fileName = fileUrl.split('/').pop() || 'statement.pdf';
-            const downloadUrl = `http://localhost:5000/api/statements/download-file?fileUrl=${encodeURIComponent(fileUrl)}`;
+            // Convert localhost URLs to live URLs for production
+            const downloadFileUrl = convertToLiveUrl(fileUrl);
+            const downloadUrl = `https://ecommerce-2sdf.onrender.com/api/statements/download-file?fileUrl=${encodeURIComponent(downloadFileUrl)}`;
             const response = await fetch(downloadUrl);
             if (!response.ok) throw new Error(`Server returned ${response.status}`);
             const blob = await response.blob();
@@ -758,7 +774,7 @@ export function InPdfEditor(props) {
                 return;
             }
             
-            const response = await fetch('http://localhost:5000/api/statements/edit-direct', {
+            const response = await fetch('https://ecommerce-2sdf.onrender.com/api/statements/edit-direct', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
@@ -1201,8 +1217,11 @@ export function InPdfEditor(props) {
             // Fetch PDF and convert to base64 for Render compatibility
             let pdfData = null;
             try {
-                console.log(`[Transform] Fetching PDF from: ${fileUrl}`);
-                const pdfResponse = await fetch(fileUrl);
+                // Convert localhost URLs to live URLs for production
+                const fetchUrl = convertToLiveUrl(fileUrl);
+                
+                console.log(`[Transform] Fetching PDF from: ${fetchUrl}`);
+                const pdfResponse = await fetch(fetchUrl);
                 if (!pdfResponse.ok) {
                     throw new Error(`Failed to fetch PDF: ${pdfResponse.status}`);
                 }
@@ -1226,7 +1245,7 @@ export function InPdfEditor(props) {
             
             let transformResponse;
             try {
-                const response = await fetch('http://localhost:5000/api/statements/edit-direct', {
+                const response = await fetch('https://ecommerce-2sdf.onrender.com/api/statements/edit-direct', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ 

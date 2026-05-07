@@ -19,6 +19,7 @@ app.use(cors({
         if (!origin) return callback(null, true);
         
         const allowedOrigins = [
+            'https://ecommerce-2sdf.onrender.com', 
             'http://localhost:5173', 
             'http://localhost:5174',
             'http://localhost:3000'
