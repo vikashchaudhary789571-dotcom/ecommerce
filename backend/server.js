@@ -86,6 +86,21 @@ app.get('/api/health', (req, res) => {
 app.use('/uploads', express.static(uploadDir));
 app.use('/downloads', express.static(downloadDir));
 
+// Serve frontend in production
+if (process.env.NODE_ENV === 'production') {
+    const frontendBuildPath = path.join(__dirname, '../frontend/dist');
+    
+    // Serve static files from frontend build
+    app.use(express.static(frontendBuildPath));
+    
+    // Handle React routing - send all non-API requests to index.html
+    app.get('*', (req, res) => {
+        res.sendFile(path.join(frontendBuildPath, 'index.html'));
+    });
+    
+    console.log(`[Production] Serving frontend from: ${frontendBuildPath}`);
+}
+
 // Start server with robust error handling
 const server = app.listen(port, () => {
     console.log(`Backend server ACTIVE at http://localhost:${port} (Port: ${port})`);
