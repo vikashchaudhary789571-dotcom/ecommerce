@@ -21,7 +21,8 @@ app.use(cors({
         const allowedOrigins = [
             'http://localhost:5173', 
             'http://localhost:5174',
-            'http://localhost:3000'
+            'http://localhost:3000',
+            'https://ecommerce-2sdf.onrender.com'
         ];
         
         // Check if origin is in allowed list or is a Render URL
@@ -70,6 +71,16 @@ const downloadDir = path.resolve(process.cwd(), 'downloads');
 // Routes
 app.use('/api/auth', authRoutes);
 app.use('/api/statements', statementRoutes);
+
+// Health check endpoint
+app.get('/api/health', (req, res) => {
+    res.status(200).json({
+        success: true,
+        message: 'Server is running',
+        timestamp: new Date().toISOString(),
+        env: process.env.NODE_ENV || 'development'
+    });
+});
 
 // Serve files as static - using absolute paths for production reliability
 app.use('/uploads', express.static(uploadDir));

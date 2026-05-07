@@ -53,8 +53,11 @@ exports.login = async (req, res) => {
     try {
         const { email, password } = req.body;
 
+        console.log('[login] Request received:', { email, hasPassword: !!password });
+
         // 1) Check if email and password exist
         if (!email || !password) {
+            console.log('[login] Missing credentials');
             return res.status(400).json({
                 success: false,
                 message: 'Please provide email and password'
@@ -66,6 +69,7 @@ exports.login = async (req, res) => {
         console.log('[login] Using dummy authentication');
         
         if (email === 'demo@example.com' && password === 'demo123') {
+            console.log('[login] Demo credentials matched');
             const token = signToken('dummy-user-id');
             return res.status(200).json({
                 success: true,
@@ -78,6 +82,7 @@ exports.login = async (req, res) => {
                 }
             });
         } else {
+            console.log('[login] Invalid credentials provided:', email);
             return res.status(401).json({
                 success: false,
                 message: 'Invalid credentials. Use: demo@example.com / demo123'
