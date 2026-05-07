@@ -758,7 +758,7 @@ export function InPdfEditor(props) {
                 return;
             }
             
-            const response = await fetch('https://editor-12.onrender.com/api/statements/edit-direct', {
+            const response = await fetch('http://localhost:5000/api/statements/edit-direct', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({

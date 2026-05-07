@@ -21,9 +21,7 @@ app.use(cors({
         const allowedOrigins = [
             'http://localhost:5173', 
             'http://localhost:5174',
-            'http://localhost:3000',
-            'https://editor-12.onrender.com',
-            'https://editor-123-sfkd.onrender.com'
+            'http://localhost:3000'
         ];
         
         // Check if origin is in allowed list or is a Render URL

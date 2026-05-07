@@ -874,23 +874,22 @@ exports.editDirect = async (req, res) => {
 
                 // ═══════════════════════════════════════════════════════════════════
                 // CRITICAL: Proper alignment for numeric values in table cells
-                // Ensures numbers stay within cell boundaries (HDFC PDF fix)
+                // Match the original PDF's alignment exactly
                 // ═══════════════════════════════════════════════════════════════════
                 let drawX = change.x;
-                const isTable = change.isTableItem === true;
                 
                 if (change.isNumeric && change.width) {
                     // Right-align numeric values within cell
-                    drawX = (change.x + change.width) - textWidth;
+                    // Use original x position as the RIGHT edge reference
+                    const originalTextWidth = change.width || textWidth;
+                    const rightEdge = change.x + originalTextWidth;
                     
-                    // HDFC FIX: Ensure text doesn't overflow cell boundaries
-                    // Add small padding from right edge
-                    const rightPadding = isTable ? 3 : 2;
-                    drawX = drawX - rightPadding;
+                    // Position new text so it ends at the same right edge
+                    drawX = rightEdge - textWidth;
                     
                     // Ensure drawX doesn't go before cell start
-                    if (drawX < change.x) {
-                        drawX = change.x + 2; // Small left padding
+                    if (drawX < change.x - 10) {
+                        drawX = change.x;
                     }
                 }
                 
@@ -898,149 +897,49 @@ exports.editDirect = async (req, res) => {
                     drawX = change.minDrawX;
                 }
 
-                // ═══════════════════════════════════════════════════════════════════
-                // CRITICAL: Mask should NEVER exceed cell boundaries
-                // This prevents white rectangles from covering adjacent cells
-                // ═══════════════════════════════════════════════════════════════════
-                const hPaddingRight = isTable ? 2 : 6;
-                const hPaddingLeft = isTable ? 2 : 0;
-                
-                // Calculate mask boundaries
-                let maskX = Math.min(change.x, drawX) - hPaddingLeft;
-                let maskWidth = Math.max(change.x + cellWidth, drawX + textWidth) - maskX + hPaddingRight;
-                
-                // HDFC FIX: Constrain mask to cell width
-                if (change.width && isTable) {
-                    const maxMaskWidth = change.width + hPaddingLeft + hPaddingRight;
-                    if (maskWidth > maxMaskWidth) {
-                        maskWidth = maxMaskWidth;
-                    }
-                    
-                    // Ensure mask starts at cell boundary
-                    if (maskX < change.x - hPaddingLeft) {
-                        maskX = change.x - hPaddingLeft;
-                    }
-                }
-
-                let maskColor = rgb(1, 1, 1);
-                if (change.maskColor && Array.isArray(change.maskColor)) {
-                    maskColor = rgb(change.maskColor[0]/255, change.maskColor[1]/255, change.maskColor[2]/255);
-                }
-
-                page.drawRectangle({
-                    x: maskX,
-                    y: change.y - 4,
-                    width: maskWidth,
-                    height: fontSize + 8,
-                    color: maskColor,
-                });
-
                 const textColor = pageTextColors[change.pageIndex] || rgb(0, 0, 0);
                 
                 // ═══════════════════════════════════════════════════════════════════
-                // CRITICAL: For ALL fonts, use raw PDF content stream operations
-                // This ensures text is drawn ON TOP of the white mask, not under it
+                // YESBANK PDF FIX: Draw white rectangle FIRST, then text on top
+                // Rectangle should cover the ENTIRE cell, not just the text
                 // ═══════════════════════════════════════════════════════════════════
-                if (currentFont._isRawFont && currentFont._fontKey) {
-                    // Use raw PDF operations to draw text with existing Arial/CourierNew font
-                    const fontKeyName = currentFont._fontKey.replace(/^\//, '');
-                    
-                    const contentStream = `
-BT
-/${fontKeyName} ${fontSize} Tf
-${textColor.red} ${textColor.green} ${textColor.blue} rg
-${drawX} ${change.y} Td
-(${textStr.replace(/\\/g, '\\\\').replace(/\(/g, '\\(').replace(/\)/g, '\\)')}) Tj
-ET
-`;
-                    
-                    // Append to page's content stream
-                    const contents = page.node.get(PDFName.of('Contents'));
-                    if (contents) {
-                        const context = pdfDoc.context;
-                        const streamRef = context.nextRef();
-                        const stream = context.stream(Buffer.from(contentStream, 'latin1'));
-                        context.assign(streamRef, stream);
-                        
-                        // Add to contents array
-                        if (contents instanceof PDFArray) {
-                            contents.push(streamRef);
-                        } else {
-                            // Convert single content to array
-                            const newContents = context.obj([contents, streamRef]);
-                            page.node.set(PDFName.of('Contents'), newContents);
-                        }
-                    }
-                    
-                    console.log(`[editDirect] ✓ Drew text using existing ${detectedFontName} (raw operations)`);
-                } else {
-                    // For Times-Roman and other standard fonts, also use raw operations
-                    // Find the font key in the page resources
-                    let fontKey = null;
-                    const resources = page.node.get(PDFName.of('Resources'));
-                    const fontDict = resources ? resources.get(PDFName.of('Font')) : null;
-                    
-                    if (fontDict) {
-                        // Find Times-Roman font key
-                        const fontEntries = fontDict.entries();
-                        for (const [key, value] of fontEntries) {
-                            const fontObj = pdfDoc.context.lookup(value);
-                            const baseFont = fontObj.get(PDFName.of('BaseFont'));
-                            if (baseFont && baseFont.toString().includes('Times-Roman')) {
-                                fontKey = key.toString().replace(/^\//, '');
-                                break;
-                            }
-                        }
-                    }
-                    
-                    if (fontKey) {
-                        // Use raw PDF operations with existing font
-                        console.log(`[editDirect] 🎨 Using raw operations with font key: ${fontKey}`);
-                        
-                        const contentStream = `
-BT
-/${fontKey} ${fontSize} Tf
-${textColor.red} ${textColor.green} ${textColor.blue} rg
-${drawX} ${change.y} Td
-(${textStr.replace(/\\/g, '\\\\').replace(/\(/g, '\\(').replace(/\)/g, '\\)')}) Tj
-ET
-`;
-                        
-                        // Append to page's content stream
-                        const contents = page.node.get(PDFName.of('Contents'));
-                        if (contents) {
-                            const context = pdfDoc.context;
-                            const streamRef = context.nextRef();
-                            const stream = context.stream(Buffer.from(contentStream, 'latin1'));
-                            context.assign(streamRef, stream);
-                            
-                            // Add to contents array
-                            if (contents instanceof PDFArray) {
-                                contents.push(streamRef);
-                            } else {
-                                // Convert single content to array
-                                const newContents = context.obj([contents, streamRef]);
-                                page.node.set(PDFName.of('Contents'), newContents);
-                            }
-                        }
-                        
-                        console.log(`[editDirect] ✓ Drew text using raw operations with ${detectedFontName}`);
-                    } else {
-                        // Fallback to pdf-lib (should not happen)
-                        console.log(`[editDirect] 🎨 Drawing text with pdf-lib: "${textStr}" at (${drawX}, ${change.y})`);
-                        console.log(`[editDirect] 🎨 Font: ${currentFont.name}, Size: ${fontSize}, Color: rgb(${textColor.red}, ${textColor.green}, ${textColor.blue})`);
-                        
-                        page.drawText(textStr, {
-                            x: drawX,
-                            y: change.y,
-                            size: fontSize,
-                            font: currentFont,
-                            color: textColor,
-                        });
-                        
-                        console.log(`[editDirect] ✓ Drew text using pdf-lib`);
-                    }
-                }
+                
+                // Calculate rectangle dimensions with padding
+                const rectPadding = 2;
+                // Rectangle starts at original cell position, not at drawX
+                const rectX = change.x - rectPadding;
+                const rectY = change.y - rectPadding;
+                // Rectangle covers the full cell width
+                const rectWidth = cellWidth + (rectPadding * 2);
+                const rectHeight = fontSize + (rectPadding * 2);
+                
+                // Draw white rectangle to mask old text
+                page.drawRectangle({
+                    x: rectX,
+                    y: rectY,
+                    width: rectWidth,
+                    height: rectHeight,
+                    color: rgb(1, 1, 1),
+                    opacity: 1.0,
+                    borderWidth: 0,
+                });
+                
+                console.log(`[editDirect] ✓ Drew mask rectangle at (${rectX.toFixed(2)}, ${rectY.toFixed(2)}), size: ${rectWidth.toFixed(2)}x${rectHeight.toFixed(2)}`);
+                
+                // Draw text on top of white rectangle
+                console.log(`[editDirect] 🎨 Drawing text: "${textStr}" at (${drawX.toFixed(2)}, ${change.y})`);
+                console.log(`[editDirect] 🎨 Font: ${currentFont.name}, Size: ${fontSize.toFixed(2)}, Color: rgb(${textColor.red.toFixed(3)}, ${textColor.green.toFixed(3)}, ${textColor.blue.toFixed(3)})`);
+                
+                page.drawText(textStr, {
+                    x: drawX,
+                    y: change.y,
+                    size: fontSize,
+                    font: currentFont,
+                    color: textColor,
+                    opacity: 1.0,
+                });
+                
+                console.log(`[editDirect] ✓ Text drawn successfully`);
 
                 appliedChanges++;
             } catch (changeErr) {
