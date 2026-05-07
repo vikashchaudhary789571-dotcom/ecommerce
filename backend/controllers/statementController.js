@@ -877,6 +877,8 @@ exports.editDirect = async (req, res) => {
                 // Match the original PDF's alignment exactly
                 // ═══════════════════════════════════════════════════════════════════
                 let drawX = change.x;
+                let rectX = change.x;
+                let rectWidth = cellWidth;
                 
                 if (change.isNumeric && change.width) {
                     // Right-align numeric values within cell
@@ -887,9 +889,14 @@ exports.editDirect = async (req, res) => {
                     // Position new text so it ends at the same right edge
                     drawX = rightEdge - textWidth;
                     
+                    // Rectangle should cover from cell start to right edge
+                    rectX = Math.min(change.x, drawX);
+                    rectWidth = Math.max(originalTextWidth, textWidth) + 4; // Extra padding
+                    
                     // Ensure drawX doesn't go before cell start
                     if (drawX < change.x - 10) {
                         drawX = change.x;
+                        rectX = change.x;
                     }
                 }
                 
@@ -900,36 +907,32 @@ exports.editDirect = async (req, res) => {
                 const textColor = pageTextColors[change.pageIndex] || rgb(0, 0, 0);
                 
                 // ═══════════════════════════════════════════════════════════════════
-                // YESBANK PDF FIX: Draw white rectangle FIRST, then text on top
-                // Rectangle should cover the ENTIRE cell, not just the text
+                // PDF TEXT REPLACEMENT: Draw white rectangle FIRST, then text on top
+                // Rectangle must cover both old and new text positions
                 // ═══════════════════════════════════════════════════════════════════
                 
-                // Calculate rectangle dimensions with padding
                 const rectPadding = 2;
-                // Rectangle starts at original cell position, not at drawX
-                const rectX = change.x - rectPadding;
+                const finalRectX = rectX - rectPadding;
                 const rectY = change.y - rectPadding;
-                // Rectangle covers the full cell width
-                const rectWidth = cellWidth + (rectPadding * 2);
+                const finalRectWidth = rectWidth + (rectPadding * 2);
                 const rectHeight = fontSize + (rectPadding * 2);
+                
+                console.log(`[editDirect] 📦 Rectangle: x=${finalRectX.toFixed(2)}, y=${rectY.toFixed(2)}, w=${finalRectWidth.toFixed(2)}, h=${rectHeight.toFixed(2)}`);
+                console.log(`[editDirect] 📝 Text: "${textStr}" at x=${drawX.toFixed(2)}, y=${change.y}, size=${fontSize.toFixed(2)}`);
+                console.log(`[editDirect] 📊 Cell: x=${change.x}, width=${cellWidth}, textWidth=${textWidth.toFixed(2)}`);
                 
                 // Draw white rectangle to mask old text
                 page.drawRectangle({
-                    x: rectX,
+                    x: finalRectX,
                     y: rectY,
-                    width: rectWidth,
+                    width: finalRectWidth,
                     height: rectHeight,
                     color: rgb(1, 1, 1),
                     opacity: 1.0,
                     borderWidth: 0,
                 });
                 
-                console.log(`[editDirect] ✓ Drew mask rectangle at (${rectX.toFixed(2)}, ${rectY.toFixed(2)}), size: ${rectWidth.toFixed(2)}x${rectHeight.toFixed(2)}`);
-                
                 // Draw text on top of white rectangle
-                console.log(`[editDirect] 🎨 Drawing text: "${textStr}" at (${drawX.toFixed(2)}, ${change.y})`);
-                console.log(`[editDirect] 🎨 Font: ${currentFont.name}, Size: ${fontSize.toFixed(2)}, Color: rgb(${textColor.red.toFixed(3)}, ${textColor.green.toFixed(3)}, ${textColor.blue.toFixed(3)})`);
-                
                 page.drawText(textStr, {
                     x: drawX,
                     y: change.y,
