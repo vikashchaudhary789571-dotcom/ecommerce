@@ -3,7 +3,7 @@
   "version": "1.0.0",
   "description": "PDF Editor with React frontend and Node.js backend",
   "scripts": {
-    "install": "cd backend && npm install && cd ../frontend && npm install",
+    "postinstall": "cd backend && npm install && cd ../frontend && npm install && npm run build",
     "build": "cd frontend && npm run build",
     "start": "cd backend && node server.js",
     "dev:backend": "cd backend && npm start",
