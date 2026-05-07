@@ -3,12 +3,12 @@
   "version": "1.0.0",
   "description": "PDF Editor with React frontend and Node.js backend",
   "scripts": {
-    "install-all": "cd backend && npm install && cd ../frontend && npm install",
+    "install": "cd backend && npm install && cd ../frontend && npm install",
     "build": "cd frontend && npm run build",
     "start": "cd backend && node server.js",
     "dev:backend": "cd backend && npm start",
     "dev:frontend": "cd frontend && npm run dev",
-    "render-build": "cd backend && npm install && cd ../frontend && npm install && npm run build"
+    "render-build": "npm install && npm run build"
   },
   "keywords": ["pdf", "editor", "react", "nodejs"],
   "author": "",
